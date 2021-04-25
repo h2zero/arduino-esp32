@@ -203,21 +203,32 @@ void BLEClient::gattClientEventHandler(
 		// - uint16_t          conn_id
 		// - esp_bd_addr_t     remote_bda
 		case ESP_GATTC_DISCONNECT_EVT: {
-				if (evtParam->disconnect.conn_id != getConnId()) break;
-				// If we receive a disconnect event, set the class flag that indicates that we are
-				// no longer connected.
-				bool m_wasConnected = m_isConnected;
-				m_isConnected = false;
-				esp_ble_gattc_app_unregister(m_gattc_if);
-				m_gattc_if = ESP_GATT_IF_NONE;
-				m_semaphoreOpenEvt.give(ESP_GATT_IF_NONE);
-				m_semaphoreRssiCmplEvt.give();
-				m_semaphoreSearchCmplEvt.give(1);
-				BLEDevice::removePeerDevice(m_appId, true);
-				if (m_wasConnected && m_pClientCallbacks != nullptr) {
-					m_pClientCallbacks->onDisconnect(this);
-				}
-				break;
+            if(m_gattc_if != gattc_if)
+				return;
+            if (evtParam->disconnect.conn_id != getConnId())
+                return;
+			if(!m_isConnected)
+				return;
+
+            m_semaphoreOpenEvt.give(1);
+            m_semaphoreRssiCmplEvt.give(0);
+            m_semaphoreSearchCmplEvt.give(1);
+
+            for (auto &myPair : m_servicesMap) {
+			   myPair.second->gattClientEventHandler(event, gattc_if, evtParam);
+			}
+
+            esp_ble_gattc_app_unregister(m_gattc_if);
+            m_gattc_if = ESP_GATT_IF_NONE;
+            BLEDevice::removePeerDevice(m_appId, true);
+            m_isConnected = false;
+
+            if (m_pClientCallbacks != nullptr) {
+				m_pClientCallbacks->onDisconnect(this);
+			}
+
+            return;
+
 		} // ESP_GATTC_DISCONNECT_EVT
 
 		//
@@ -295,7 +306,7 @@ void BLEClient::gattClientEventHandler(
 				break;
 			}
 #ifndef ARDUINO_ARCH_ESP32
-// commented out just for now to keep backward compatibility			
+// commented out just for now to keep backward compatibility
 			// if(p_data->search_cmpl.searched_service_source == ESP_GATT_SERVICE_FROM_REMOTE_DEVICE) {
 			// 	log_i("Get service information from remote device");
 			// } else if (p_data->search_cmpl.searched_service_source == ESP_GATT_SERVICE_FROM_NVS_FLASH) {
@@ -555,7 +566,7 @@ uint16_t BLEClient::getMTU() {
 bool BLEClient::setMTU(uint16_t mtu)
 {
 	esp_err_t err = esp_ble_gatt_set_local_mtu(mtu);  //First must set local MTU value.
-	if (err == ESP_OK) 
+	if (err == ESP_OK)
 	{
 		err = esp_ble_gattc_send_mtu_req(m_gattc_if,m_conn_id);  //Once local is set successfully set remote size
 		if (err!=ESP_OK)
@@ -564,7 +575,7 @@ bool BLEClient::setMTU(uint16_t mtu)
 			return false;
 		}
 	}
-	else 
+	else
 	{
 		log_e("can't set local mtu value: %d", mtu);
 		return false;
